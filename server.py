@@ -1,11 +1,15 @@
 import socket
 import sys
 import signal
+import time
 from protocol import (
-    PACKET_SIZE, parse_packet, make_ack, make_nack,
-    TYPE_DATA, type_name,
-    HEADER_SIZE, PAYLOAD_SIZE, CHECKSUM_SIZE,
+    HEADER_SIZE, CHECKSUM_SIZE, MAX_RECV_SIZE,
+    parse_packet, make_ack, make_nack,
+    TYPE_DATA, type_name, flag_name, decode_payload,
+    FLAG_ID,
 )
+
+SESSION_TIMEOUT_S = 30000 
 
 shutdown = False
 
@@ -16,11 +20,27 @@ def signal_handler(sig, frame):
     shutdown = True
 
 
+def cleanup_sessions(sessions, timeout):
+    now = time.time()
+    expired = [k for k, v in sessions.items() if now - v['last_seen'] > timeout]
+    for k in expired:
+        print(f"[SERVER] Session expired: {sessions[k]['name']} ({k[0]}:{k[1]})")
+        del sessions[k]
+
+
+def session_label(sessions, addr):
+    s = sessions.get(addr)
+    if s:
+        return f"{s['name']}@{addr[0]}:{addr[1]}"
+    return f"{addr[0]}:{addr[1]}"
+
+
 def main():
     global shutdown
     signal.signal(signal.SIGINT, signal_handler)
 
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    timeout = int(sys.argv[2]) if len(sys.argv) > 2 else SESSION_TIMEOUT_S
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0', port))
@@ -28,16 +48,22 @@ def main():
 
     assigned_port = sock.getsockname()[1]
     print(f"[SERVER] Listening on port {assigned_port}")
-    print(f"[SERVER] Packet: {PACKET_SIZE}B (hdr={HEADER_SIZE} pay={PAYLOAD_SIZE} crc={CHECKSUM_SIZE})")
+    print(f"[SERVER] Header={HEADER_SIZE}B  CRC={CHECKSUM_SIZE}B  Variable payload")
+    print(f"[SERVER] Session timeout: {timeout}s")
     print(f"[SERVER] Waiting for data...\n")
 
-    reassembly = {}
-    expected_frags = {}
+    sessions = {}  
+    last_cleanup = time.time()
 
     try:
         while not shutdown:
+            # periodic session cleanup
+            if time.time() - last_cleanup > 30:
+                cleanup_sessions(sessions, timeout)
+                last_cleanup = time.time()
+
             try:
-                raw, addr = sock.recvfrom(PACKET_SIZE + 64)
+                raw, addr = sock.recvfrom(MAX_RECV_SIZE)
             except socket.timeout:
                 continue
             except OSError:
@@ -49,46 +75,46 @@ def main():
                 print(f"[SERVER] Malformed packet from {addr} (size={len(raw)})")
                 continue
 
+            label = session_label(sessions, addr)
             ptype = type_name(header['type'])
-            print(f"[SERVER] [{addr}] {ptype} seq={header['seq']} "
-                  f"frag={header['frag_idx']}/{header['frag_total']} "
-                  f"len={header['payload_len']} crc={'OK' if valid else 'FAIL'}")
+            fname = flag_name(header['flags'])
+
+            print(f"[SERVER] [{label}] {ptype} seq={header['seq']} "
+                  f"flags={fname} len={header['payload_len']} "
+                  f"crc={'OK' if valid else 'FAIL'}")
 
             if header['type'] != TYPE_DATA:
                 continue
 
             if not valid:
-                print(f"[SERVER] [{addr}] Checksum FAILED, sending NACK")
+                print(f"[SERVER] [{label}] Checksum FAILED, sending NACK")
                 sock.sendto(make_nack(header['seq']), addr)
                 continue
 
-            print(f"[SERVER] [{addr}] Checksum OK, sending ACK")
             sock.sendto(make_ack(header['seq']), addr)
 
-            key = addr
-            if key not in reassembly:
-                reassembly[key] = {}
-                expected_frags[key] = header['frag_total']
 
-            reassembly[key][header['frag_idx']] = payload
+            if addr in sessions:
+                sessions[addr]['last_seen'] = time.time()
 
-            if len(reassembly[key]) == expected_frags[key]:
-                full_msg = b''
-                for i in range(expected_frags[key]):
-                    full_msg += reassembly[key].get(i, b'')
 
-                print(f"\n[SERVER] === COMPLETE MESSAGE from {addr} ===")
-                try:
-                    print(f"[SERVER] {full_msg.decode('utf-8')}")
-                except UnicodeDecodeError:
-                    print(f"[SERVER] (hex) {full_msg.hex()}")
-                print(f"[SERVER] ===================================\n")
+            result = decode_payload(header['flags'], payload)
 
-                del reassembly[key]
-                del expected_frags[key]
+
+            if header['flags'] == FLAG_ID and 'name' in result:
+                sessions[addr] = {
+                    'name': result['name'],
+                    'client_ip': result.get('ip', addr[0]),
+                    'client_port': result.get('port', str(addr[1])),
+                    'last_seen': time.time(),
+                }
+                label = session_label(sessions, addr)
+
+            print(f"[SERVER] [{label}] {result['display']}")
+
     finally:
         sock.close()
-        print("[SERVER] Socket closed.")
+        print(f"[SERVER] Socket closed. Active sessions: {len(sessions)}")
 
 
 if __name__ == '__main__':

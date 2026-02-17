@@ -1,27 +1,27 @@
 import socket
 import sys
 from protocol import (
-    PACKET_SIZE, RETRANSMIT_TIMEOUT_S, MAX_MESSAGE_SIZE,
+    MAX_RECV_SIZE, MAX_PAYLOAD_SIZE, RETRANSMIT_TIMEOUT_S,
     TYPE_DATA, TYPE_ACK, TYPE_NACK,
-    make_packet, parse_packet, fragment_message, type_name,
+    make_packet, parse_packet, type_name,
 )
 
 
-def send_with_rdt(sock, server_addr, seq, frag_idx, frag_total, payload,
+def send_with_rdt(sock, server_addr, seq, payload, flags=0,
                   timeout=RETRANSMIT_TIMEOUT_S):
-    packet = make_packet(TYPE_DATA, seq, frag_idx, frag_total, payload)
+    packet = make_packet(TYPE_DATA, seq, payload, flags=flags)
     attempt = 0
 
     while True:
         attempt += 1
-        print(f"[CLIENT] Sending frag={frag_idx}/{frag_total} seq={seq} "
-              f"len={len(payload)} attempt={attempt}")
+        print(f"[CLIENT] TX seq={seq} len={len(payload)} "
+              f"flags=0x{flags:02X} attempt={attempt}")
 
         sock.sendto(packet, server_addr)
         sock.settimeout(timeout)
 
         try:
-            raw, _ = sock.recvfrom(PACKET_SIZE + 64)
+            raw, _ = sock.recvfrom(MAX_RECV_SIZE)
         except socket.timeout:
             print(f"[CLIENT] Timeout ({timeout}s), retransmitting")
             continue
@@ -36,7 +36,7 @@ def send_with_rdt(sock, server_addr, seq, frag_idx, frag_total, payload,
         print(f"[CLIENT] Got {rtype} seq={resp['seq']}")
 
         if resp['type'] == TYPE_ACK:
-            print(f"[CLIENT] Fragment {frag_idx} delivered")
+            print(f"[CLIENT] Delivered")
             return True
         elif resp['type'] == TYPE_NACK:
             print(f"[CLIENT] NACK, retransmitting")
@@ -56,25 +56,19 @@ def main():
     message = ' '.join(sys.argv[3:]) if len(sys.argv) > 3 else "Hello via satellite!"
 
     data = message.encode('utf-8')
-    if len(data) > MAX_MESSAGE_SIZE:
-        print(f"[CLIENT] Message too large ({len(data)}B, max {MAX_MESSAGE_SIZE})")
+    if len(data) > MAX_PAYLOAD_SIZE:
+        print(f"[CLIENT] Message too large ({len(data)}B, max {MAX_PAYLOAD_SIZE})")
         sys.exit(1)
 
-    chunks = fragment_message(data)
-    frag_total = len(chunks)
-
     print(f"[CLIENT] Target: {server_ip}:{server_port}")
-    print(f"[CLIENT] Message: {len(data)}B, {frag_total} fragment(s)")
+    print(f"[CLIENT] Message: {len(data)}B")
     print(f"[CLIENT] Retransmit timeout: {RETRANSMIT_TIMEOUT_S}s\n")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    seq = 0
     try:
-        for i, chunk in enumerate(chunks):
-            send_with_rdt(sock, (server_ip, server_port), seq, i, frag_total, chunk)
-            seq ^= 1
-        print(f"\n[CLIENT] All {frag_total} fragment(s) delivered.")
+        send_with_rdt(sock, (server_ip, server_port), 0, data)
+        print(f"\n[CLIENT] Message delivered.")
     finally:
         sock.close()
 

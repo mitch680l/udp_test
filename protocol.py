@@ -1,19 +1,22 @@
 import struct
 
 HEADER_SIZE = 8
-PAYLOAD_SIZE = 50
 CHECKSUM_SIZE = 2
-PACKET_SIZE = HEADER_SIZE + PAYLOAD_SIZE + CHECKSUM_SIZE
-
-MAX_MESSAGE_SIZE = 1100
-MAX_FRAGMENTS = (MAX_MESSAGE_SIZE + PAYLOAD_SIZE - 1) // PAYLOAD_SIZE
+MAX_PAYLOAD_SIZE = 1100
+MIN_PAYLOAD_SIZE = 1
 RETRANSMIT_TIMEOUT_S = 25 * 60
+MAX_RECV_SIZE = HEADER_SIZE + MAX_PAYLOAD_SIZE + CHECKSUM_SIZE + 64
 
 TYPE_DATA = ord('D')
 TYPE_ACK = ord('A')
 TYPE_NACK = ord('N')
 
-HEADER_FMT = '!BBBBHBB'
+HEADER_FMT = '!BBHB3s'
+
+
+FLAG_UNKNOWN = 0x00
+FLAG_ID = 0x01
+FLAG_GPS = 0x02
 
 
 def crc16_ccitt(data: bytes) -> int:
@@ -29,59 +32,101 @@ def crc16_ccitt(data: bytes) -> int:
     return crc
 
 
-def make_packet(pkt_type, seq, frag_idx, frag_total, payload, flags=0):
-    if len(payload) > PAYLOAD_SIZE:
-        raise ValueError(f"payload too large: {len(payload)} > {PAYLOAD_SIZE}")
-
+def make_packet(pkt_type, seq, payload, flags=0):
     payload_len = len(payload)
-    padded = payload.ljust(PAYLOAD_SIZE, b'\x00')
-    header = struct.pack(HEADER_FMT, pkt_type, seq, frag_idx, frag_total,
-                         payload_len, flags, 0)
-    crc = crc16_ccitt(header + padded)
-    return header + padded + struct.pack('!H', crc)
+    if payload_len > MAX_PAYLOAD_SIZE:
+        raise ValueError(f"payload too large: {payload_len} > {MAX_PAYLOAD_SIZE}")
+
+    header = struct.pack(HEADER_FMT, pkt_type, seq, payload_len, flags, b'\x00\x00\x00')
+    crc = crc16_ccitt(header + payload)
+    return header + payload + struct.pack('!H', crc)
 
 
 def parse_packet(raw):
-    if len(raw) != PACKET_SIZE:
+    if len(raw) < HEADER_SIZE + CHECKSUM_SIZE:
         return None, None, False
 
     hdr_bytes = raw[:HEADER_SIZE]
-    pay_bytes = raw[HEADER_SIZE:HEADER_SIZE + PAYLOAD_SIZE]
-    crc_bytes = raw[HEADER_SIZE + PAYLOAD_SIZE:]
+    pkt_type, seq, payload_len, flags, _reserved = struct.unpack(HEADER_FMT, hdr_bytes)
+
+    expected_len = HEADER_SIZE + payload_len + CHECKSUM_SIZE
+    if len(raw) != expected_len:
+        return None, None, False
+
+    pay_bytes = raw[HEADER_SIZE:HEADER_SIZE + payload_len]
+    crc_bytes = raw[HEADER_SIZE + payload_len:]
 
     expected = crc16_ccitt(hdr_bytes + pay_bytes)
     actual = struct.unpack('!H', crc_bytes)[0]
     valid = expected == actual
 
-    pkt_type, seq, frag_idx, frag_total, payload_len, flags, _ = \
-        struct.unpack(HEADER_FMT, hdr_bytes)
-
     header = {
         'type': pkt_type,
         'seq': seq,
-        'frag_idx': frag_idx,
-        'frag_total': frag_total,
         'payload_len': payload_len,
         'flags': flags,
     }
-    return header, pay_bytes[:payload_len], valid
+    return header, pay_bytes, valid
 
 
 def make_ack(seq):
-    return make_packet(TYPE_ACK, seq, 0, 0, b'')
+    return make_packet(TYPE_ACK, seq, b'')
 
 
 def make_nack(seq):
-    return make_packet(TYPE_NACK, seq, 0, 0, b'')
-
-
-def fragment_message(data):
-    if len(data) > MAX_MESSAGE_SIZE:
-        raise ValueError(f"message too large: {len(data)} > {MAX_MESSAGE_SIZE}")
-    if not data:
-        return [b'']
-    return [data[i:i + PAYLOAD_SIZE] for i in range(0, len(data), PAYLOAD_SIZE)]
+    return make_packet(TYPE_NACK, seq, b'')
 
 
 def type_name(pkt_type):
     return {TYPE_DATA: 'DATA', TYPE_ACK: 'ACK', TYPE_NACK: 'NACK'}.get(pkt_type, '???')
+
+
+
+
+def decode_id(payload):
+    try:
+        text = payload.decode('utf-8')
+        parts = text.split(',')
+        if len(parts) >= 3:
+            ip = parts[0]
+            port = parts[1]
+            name = ','.join(parts[2:])
+            return {'ip': ip, 'port': port, 'name': name, 'display': f"ID {name} ({ip}:{port})"}
+        return {'display': f"ID (malformed): {text}"}
+    except UnicodeDecodeError:
+        return {'display': f"ID (binary): {payload.hex()}"}
+
+
+def decode_gps(payload):
+    try:
+        text = payload.decode('utf-8')
+        return {'display': f"GPS: {text}"}
+    except UnicodeDecodeError:
+        return {'display': f"GPS: (hex) {payload.hex()}"}
+
+
+def decode_unknown(payload):
+    try:
+        text = payload.decode('utf-8')
+        return {'display': f"[Unknown] {text}"}
+    except UnicodeDecodeError:
+        return {'display': f"[Unknown] (hex) {payload.hex()}"}
+
+
+MESSAGE_DECODERS = {
+    FLAG_ID:  ("ID",  decode_id),
+    FLAG_GPS: ("GPS", decode_gps),
+}
+
+
+def decode_payload(flags, payload):
+    if flags in MESSAGE_DECODERS:
+        label, decoder = MESSAGE_DECODERS[flags]
+        return decoder(payload)
+    return decode_unknown(payload)
+
+
+def flag_name(flags):
+    if flags in MESSAGE_DECODERS:
+        return MESSAGE_DECODERS[flags][0]
+    return f"Unknown(0x{flags:02X})"
