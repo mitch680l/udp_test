@@ -8,6 +8,7 @@ from protocol import (
     TYPE_DATA, type_name, flag_name, decode_payload,
     FLAG_ID, crc16_ccitt,
 )
+from mqtt_bridge import MQTTBridge
 
 SESSION_TIMEOUT_S = 30000 
 
@@ -23,9 +24,12 @@ def signal_handler(sig, frame):
 def cleanup_sessions(sessions, timeout):
     now = time.time()
     expired = [k for k, v in sessions.items() if now - v['last_seen'] > timeout]
+    names = []
     for k in expired:
         print(f"[SERVER] Session expired: {sessions[k]['name']} ({k[0]}:{k[1]})")
+        names.append(sessions[k]['name'])
         del sessions[k]
+    return names
 
 
 def session_label(sessions, addr):
@@ -52,13 +56,17 @@ def main():
     print(f"[SERVER] Session timeout: {timeout}s")
     print(f"[SERVER] Waiting for data...\n")
 
-    sessions = {}  
+    sessions = {}
     last_cleanup = time.time()
+
+    bridge = MQTTBridge(udp_send_fn=lambda addr, pkt: sock.sendto(pkt, addr))
+    bridge.start()
 
     try:
         while not shutdown:
             if time.time() - last_cleanup > 30:
-                cleanup_sessions(sessions, timeout)
+                for name in cleanup_sessions(sessions, timeout):
+                    bridge.deregister_device(name)
                 last_cleanup = time.time()
 
             try:
@@ -70,7 +78,7 @@ def main():
 
             header, payload, valid = parse_packet(raw)
 
-            if header is None:
+            if header is None or payload is None:
                 print(f"[SERVER] Malformed packet from {addr} (size={len(raw)})")
                 continue
 
@@ -97,13 +105,10 @@ def main():
 
             sock.sendto(make_ack(header['seq']), addr)
 
-
             if addr in sessions:
                 sessions[addr]['last_seen'] = time.time()
 
-
             result = decode_payload(header['flags'], payload)
-
 
             if header['flags'] == FLAG_ID and 'name' in result:
                 sessions[addr] = {
@@ -113,10 +118,17 @@ def main():
                     'last_seen': time.time(),
                 }
                 label = session_label(sessions, addr)
+                bridge.register_device(result['name'], addr)
+            elif addr in sessions:
+                bridge.update_addr(sessions[addr]['name'], addr)
+
+            client_id = sessions[addr]['name'] if addr in sessions else f"{addr[0]}:{addr[1]}"
+            bridge.publish(client_id, header['flags'], payload)
 
             print(f"[SERVER] [{label}] {result['display']}")
 
     finally:
+        bridge.stop()
         sock.close()
         print(f"[SERVER] Socket closed. Active sessions: {len(sessions)}")
 

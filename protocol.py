@@ -15,9 +15,12 @@ HEADER_FMT = '!BBHB3s'
 
 
 FLAG_UNKNOWN = 0x00
-FLAG_ID = 0x02
-FLAG_GPS = 0x01
-FLAG_GEN = 0x03
+FLAG_GPS  = 0x01
+FLAG_ID   = 0x02
+FLAG_GEN  = 0x03
+FLAG_SENS = 0x04
+FLAG_CMD  = 0x05  
+
 
 
 def crc16_ccitt(data: bytes) -> int:
