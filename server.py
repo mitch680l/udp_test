@@ -57,7 +57,6 @@ def main():
 
     try:
         while not shutdown:
-            # periodic session cleanup
             if time.time() - last_cleanup > 30:
                 cleanup_sessions(sessions, timeout)
                 last_cleanup = time.time()
