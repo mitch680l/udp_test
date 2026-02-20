@@ -16,7 +16,7 @@ MQTT_PASSWORD  = "Kalscott123"
 MQTT_TLS       = True
 MQTT_CA_CERT   = "~/autobuilder/server_auth/42/ca.crt"  
 MQTT_CERTFILE  = "~/autobuilder/server_auth/42/public.crt"  
-MQTT_KEYFILE   = "~/autobuilder/server_auth/42/public.key"  
+MQTT_KEYFILE   = "~/autobuilder/server_auth/42/private.key"  
 MQTT_CLIENT_ID = "ntn-udp-gateway"
 MQTT_QOS       = 1
 
