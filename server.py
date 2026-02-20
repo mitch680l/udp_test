@@ -6,7 +6,7 @@ from protocol import (
     HEADER_SIZE, CHECKSUM_SIZE, MAX_RECV_SIZE,
     parse_packet, make_ack, make_nack,
     TYPE_DATA, type_name, flag_name, decode_payload,
-    FLAG_ID,
+    FLAG_ID, crc16_ccitt,
 )
 
 SESSION_TIMEOUT_S = 30000 
@@ -86,7 +86,12 @@ def main():
                 continue
 
             if not valid:
+                data_end = HEADER_SIZE + header['payload_len']
+                expected_crc = crc16_ccitt(raw[:data_end])
+                actual_crc = int.from_bytes(raw[data_end:data_end + CHECKSUM_SIZE], 'big')
                 print(f"[SERVER] [{label}] Checksum FAILED, sending NACK")
+                print(f"[SERVER] [{label}]   expected=0x{expected_crc:04X} got=0x{actual_crc:04X}")
+                print(f"[SERVER] [{label}]   raw={raw.hex()}")
                 sock.sendto(make_nack(header['seq']), addr)
                 continue
 
