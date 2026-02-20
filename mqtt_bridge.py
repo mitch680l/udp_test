@@ -58,11 +58,14 @@ class MQTTBridge:
         if MQTT_USERNAME:
             self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
         if MQTT_TLS:
-            self._client.tls_set(
-                ca_certs=os.path.expanduser(MQTT_CA_CERT)  if MQTT_CA_CERT  else None,
-                certfile=os.path.expanduser(MQTT_CERTFILE) if MQTT_CERTFILE else None,
-                keyfile =os.path.expanduser(MQTT_KEYFILE)  if MQTT_KEYFILE  else None,
-            )
+            ca       = os.path.expanduser(MQTT_CA_CERT)  if MQTT_CA_CERT  else None
+            certfile = os.path.expanduser(MQTT_CERTFILE) if MQTT_CERTFILE else None
+            keyfile  = os.path.expanduser(MQTT_KEYFILE)  if MQTT_KEYFILE  else None
+            for label, path in [("CA cert", ca), ("certfile", certfile), ("keyfile", keyfile)]:
+                if path:
+                    exists = "OK" if os.path.isfile(path) else "NOT FOUND"
+                    print(f"[MQTT] TLS {label}: {path}  [{exists}]")
+            self._client.tls_set(ca_certs=ca, certfile=certfile, keyfile=keyfile)
 
         self._client.on_connect    = self._on_connect
         self._client.on_disconnect = self._on_disconnect
