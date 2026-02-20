@@ -23,13 +23,9 @@ FLAG_GEN = 0x03
 def crc16_ccitt(data: bytes) -> int:
     crc = 0x0000
     for byte in data:
-        crc ^= byte << 8
+        crc ^= byte
         for _ in range(8):
-            if crc & 0x8000:
-                crc = (crc << 1) ^ 0x1021
-            else:
-                crc <<= 1
-            crc &= 0xFFFF
+            crc = ((crc >> 1) ^ 0x8408) if crc & 1 else crc >> 1
     return crc
 
 
