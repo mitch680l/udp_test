@@ -88,10 +88,12 @@ def decode_id(payload):
         text = payload.decode('utf-8')
         parts = text.split(',')
         if len(parts) >= 3:
-            ip = parts[0]
-            port = parts[1]
-            name = ','.join(parts[2:])
-            return {'ip': ip, 'port': port, 'name': name, 'display': f"ID {name} ({ip}:{port})"}
+            ip        = parts[0]
+            port      = parts[1]
+            name      = parts[-1]           # last field is the device name
+            device_id = ','.join(parts[2:-1])  # anything between port and name
+            return {'ip': ip, 'port': port, 'device_id': device_id, 'name': name,
+                    'display': f"ID {name} (id={device_id}) ({ip}:{port})"}
         return {'display': f"ID (malformed): {text}"}
     except UnicodeDecodeError:
         return {'display': f"ID (binary): {payload.hex()}"}
