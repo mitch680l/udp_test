@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import paho.mqtt.client as mqtt
 
@@ -58,9 +59,9 @@ class MQTTBridge:
             self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
         if MQTT_TLS:
             self._client.tls_set(
-                ca_certs=MQTT_CA_CERT   or None,
-                certfile=MQTT_CERTFILE  or None,
-                keyfile =MQTT_KEYFILE   or None,
+                ca_certs=os.path.expanduser(MQTT_CA_CERT)  if MQTT_CA_CERT  else None,
+                certfile=os.path.expanduser(MQTT_CERTFILE) if MQTT_CERTFILE else None,
+                keyfile =os.path.expanduser(MQTT_KEYFILE)  if MQTT_KEYFILE  else None,
             )
 
         self._client.on_connect    = self._on_connect
