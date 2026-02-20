@@ -100,24 +100,21 @@ def decode_id(payload):
 
 
 def decode_gps(payload):
-    try:
-        text = payload.decode('utf-8')
-        return {'display': f"GPS: {text}"}
-    except UnicodeDecodeError:
-        return {'display': f"GPS: (hex) {payload.hex()}"}
+    return {'display': f"GPS: (hex) {payload.hex()}"}
+
+
+def decode_sens(payload):
+    return {'display': f"SENS: (hex) {payload.hex()}"}
 
 
 def decode_unknown(payload):
-    try:
-        text = payload.decode('utf-8')
-        return {'display': f"[Unknown] {text}"}
-    except UnicodeDecodeError:
-        return {'display': f"[Unknown] (hex) {payload.hex()}"}
+    return {'display': f"[Unknown] (hex) {payload.hex()}"}
 
 
 MESSAGE_DECODERS = {
-    FLAG_ID:  ("ID",  decode_id),
-    FLAG_GPS: ("GPS", decode_gps),
+    FLAG_ID:   ("ID",   decode_id),
+    FLAG_GPS:  ("GPS",  decode_gps),
+    FLAG_SENS: ("SENS", decode_sens),
 }
 
 

@@ -118,8 +118,7 @@ class MQTTBridge:
         elif processor is not None:
             data = _serialise(processor(payload))
         else:
-            data = _serialise(payload)
-
+            data = payload
         if data is None:
             return
 
