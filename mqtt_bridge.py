@@ -39,7 +39,7 @@ def _serialise(data) -> bytes | None:
     if data is None:
         return None
     if isinstance(data, bytes):
-        return json.dumps({"hex": data.hex(), "len": len(data)}).encode()
+        return json.dumps(data.hex()).encode()
     if isinstance(data, dict):
         return json.dumps(data).encode()
     if isinstance(data, str):
@@ -96,8 +96,6 @@ class MQTTBridge:
             self._addr_map[client_id] = addr
 
     def deregister_device(self, client_id: str):
-        """Unsubscribe from all downlink topics for this device and remove
-        its state. Called when the server-side session expires."""
         with self._lock:
             self._addr_map.pop(client_id, None)
             self._seq_map.pop(client_id, None)

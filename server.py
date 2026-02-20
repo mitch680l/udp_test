@@ -26,14 +26,14 @@ def cleanup_sessions(sessions, timeout):
     expired = [k for k, v in sessions.items() if now - v['last_seen'] > timeout]
     names = []
     for k in expired:
-        print(f"[SERVER] Session expired: {sessions[k]['name']} ({k[0]}:{k[1]})")
+        print(f"[SERVER] Session expired: {sessions[k]['name']} ({k})")
         names.append(sessions[k]['name'])
         del sessions[k]
     return names
 
 
 def session_label(sessions, addr):
-    s = sessions.get(addr)
+    s = sessions.get(addr[0])
     if s:
         return f"{s['name']}@{addr[0]}:{addr[1]}"
     return f"{addr[0]}:{addr[1]}"
@@ -105,13 +105,13 @@ def main():
 
             sock.sendto(make_ack(header['seq']), addr)
 
-            if addr in sessions:
-                sessions[addr]['last_seen'] = time.time()
+            if addr[0] in sessions:
+                sessions[addr[0]]['last_seen'] = time.time()
 
             result = decode_payload(header['flags'], payload)
 
             if header['flags'] == FLAG_ID and 'name' in result:
-                sessions[addr] = {
+                sessions[addr[0]] = {
                     'name': result['name'],
                     'client_ip': result.get('ip', addr[0]),
                     'client_port': result.get('port', str(addr[1])),
@@ -119,10 +119,10 @@ def main():
                 }
                 label = session_label(sessions, addr)
                 bridge.register_device(result['name'], addr)
-            elif addr in sessions:
-                bridge.update_addr(sessions[addr]['name'], addr)
+            elif addr[0] in sessions:
+                bridge.update_addr(sessions[addr[0]]['name'], addr)
 
-            client_id = sessions[addr]['name'] if addr in sessions else f"{addr[0]}:{addr[1]}"
+            client_id = sessions[addr[0]]['name'] if addr[0] in sessions else f"{addr[0]}:{addr[1]}"
             bridge.publish(client_id, header['flags'], payload)
 
             print(f"[SERVER] [{label}] {result['display']}")
